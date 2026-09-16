@@ -1,0 +1,304 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<meta name="theme-color" content="#02040b">
+<title>にしき</title>
+<style>
+*{box-sizing:border-box}
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#02040b}
+body{touch-action:none;font-family:-apple-system,BlinkMacSystemFont,"Noto Sans JP","Yu Gothic",sans-serif;color:#fff}
+canvas{position:fixed;inset:0;width:100%;height:100%;display:block}
+#moon{
+  position:fixed;
+  z-index:1;
+  width:min(23vw,230px);
+  height:min(23vw,230px);
+  min-width:120px;
+  min-height:120px;
+  left:78%;
+  top:18%;
+  transform:translate(-50%,-50%);
+  border-radius:50%;
+  object-fit:cover;
+  display:block;
+  opacity:0;
+  filter:brightness(.92) contrast(1.08);
+  box-shadow:0 0 35px rgba(220,225,245,.20),0 0 90px rgba(170,185,235,.10);
+  animation:moonIn 2.4s ease 1.2s forwards;
+  pointer-events:none;
+}
+@keyframes moonIn{
+  from{opacity:0;transform:translate(-50%,-50%) scale(.82)}
+  to{opacity:.96;transform:translate(-50%,-50%) scale(1)}
+}
+#sky{z-index:0}
+#trail{z-index:2;pointer-events:none}
+#ui{position:fixed;inset:0;z-index:3;pointer-events:none}
+.scene{position:absolute;inset:0;display:grid;place-items:center;text-align:center;opacity:0;transition:opacity 1.2s ease}
+.scene.on{opacity:1}
+.title{font-size:clamp(54px,17vw,110px);font-weight:300;letter-spacing:.18em;margin-left:.18em;text-shadow:0 0 35px rgba(190,205,255,.45)}
+.text{font-size:clamp(19px,5.2vw,30px);font-weight:300;line-height:1.85;letter-spacing:.06em;text-shadow:0 3px 25px #000}
+.sub{font-size:12px;letter-spacing:.3em;color:#b7c0e0;margin-bottom:12px}
+#hint{position:absolute;left:50%;bottom:8%;transform:translateX(-50%);font-size:11px;letter-spacing:.2em;color:#aeb7d8;opacity:0;transition:opacity 1s;white-space:nowrap}
+#hint.on{opacity:.8}
+#popup{position:absolute;left:50%;top:50%;width:min(82vw,370px);padding:28px 24px;border:1px solid rgba(220,225,255,.16);border-radius:22px;background:rgba(5,8,20,.8);backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);transform:translate(-50%,-50%) scale(.96);opacity:0;transition:.3s;pointer-events:none;text-align:center;box-shadow:0 20px 80px rgba(0,0,0,.55)}
+#popup.on{opacity:1;transform:translate(-50%,-50%) scale(1);pointer-events:auto}
+#close{position:absolute;right:8px;top:5px;border:0;background:none;color:#aeb7d8;font-size:25px;padding:5px}
+#pt{font-size:12px;letter-spacing:.18em;color:#b8c2e5;margin-bottom:13px}
+#px{font-size:15px;line-height:1.9;color:#eef0fb}
+.starButton{position:absolute;z-index:4;width:40px;height:40px;border:0;background:transparent;border-radius:50%;padding:0;pointer-events:auto}
+.starButton span{position:absolute;left:50%;top:50%;width:4px;height:4px;border-radius:50%;transform:translate(-50%,-50%);background:#fff;box-shadow:0 0 9px 3px rgba(210,220,255,.95)}
+</style>
+</head>
+<body>
+<canvas id="sky"></canvas>
+<canvas id="trail"></canvas>
+<img id="moon" alt="" src="https://svs.gsfc.nasa.gov/vis/a000000/a004900/a004956/phase_full_s.3492_print.jpg">
+
+<div id="ui">
+  <div class="scene on" id="s1">
+    <div><div class="sub">✦</div><div class="title">にしき</div></div>
+  </div>
+  <div class="scene" id="s2"><div class="text">あなたのための<br>小さな夜空です。</div></div>
+  <div class="scene" id="s3"><div class="text">ゆっくり見ていて。</div></div>
+  <div class="scene" id="s4"><div class="text">星を見つけたら<br>触れてみて。</div></div>
+  <div class="scene" id="s5"><div class="text">好きなだけ<br>ここにいてください。</div></div>
+
+  <div id="hint">光っている星を探してみて</div>
+
+  <div id="popup">
+    <button id="close">×</button>
+    <div id="pt"></div>
+    <div id="px"></div>
+  </div>
+</div>
+
+<script>
+(function(){
+"use strict";
+
+var sky=document.getElementById("sky");
+var trailCanvas=document.getElementById("trail");
+var ctx=sky.getContext("2d");
+var tctx=trailCanvas.getContext("2d");
+
+var W=0,H=0,D=1;
+var stars=[];
+var particles=[];
+var buttons=[];
+var step=0;
+var dragging=false;
+var lastTrail=0;
+
+function resize(){
+  W=window.innerWidth;
+  H=window.innerHeight;
+  D=Math.min(window.devicePixelRatio||1,2);
+
+  sky.width=Math.floor(W*D);
+  sky.height=Math.floor(H*D);
+  trailCanvas.width=Math.floor(W*D);
+  trailCanvas.height=Math.floor(H*D);
+
+  sky.style.width=W+"px";
+  sky.style.height=H+"px";
+  trailCanvas.style.width=W+"px";
+  trailCanvas.style.height=H+"px";
+
+  ctx.setTransform(D,0,0,D,0,0);
+  tctx.setTransform(D,0,0,D,0,0);
+
+  createStars();
+}
+
+function createStars(){
+  stars=[];
+  var count=Math.max(100,Math.min(230,Math.floor(W*H/4000)));
+  for(var i=0;i<count;i++){
+    stars.push({
+      x:Math.random()*W,
+      y:Math.random()*H,
+      r:.3+Math.random()*1.25,
+      a:.15+Math.random()*.65,
+      phase:Math.random()*Math.PI*2,
+      speed:.0007+Math.random()*.0017
+    });
+  }
+}
+
+function draw(t){
+  ctx.clearRect(0,0,W,H);
+
+  var bg=ctx.createRadialGradient(W*.65,H*.25,0,W*.5,H*.5,Math.max(W,H)*.85);
+  bg.addColorStop(0,"#111a38");
+  bg.addColorStop(.42,"#080d20");
+  bg.addColorStop(1,"#02040b");
+  ctx.fillStyle=bg;
+  ctx.fillRect(0,0,W,H);
+
+  for(var i=0;i<stars.length;i++){
+    var s=stars[i];
+    var alpha=s.a+Math.sin(t*s.speed+s.phase)*.22;
+    if(alpha<.03)alpha=.03;
+
+    ctx.globalAlpha=alpha;
+    ctx.fillStyle="#eef2ff";
+    ctx.beginPath();
+    ctx.arc(s.x,s.y,s.r,0,Math.PI*2);
+    ctx.fill();
+  }
+
+  ctx.globalAlpha=1;
+
+  tctx.clearRect(0,0,W,H);
+
+  for(var j=particles.length-1;j>=0;j--){
+    var p=particles[j];
+
+    p.x+=p.vx;
+    p.y+=p.vy;
+    p.vy+=.006;
+    p.life-=.018;
+
+    if(p.life<=0){
+      particles.splice(j,1);
+      continue;
+    }
+
+    tctx.globalAlpha=p.life;
+    tctx.fillStyle="#e5eaff";
+    tctx.beginPath();
+    tctx.arc(p.x,p.y,p.r,0,Math.PI*2);
+    tctx.fill();
+  }
+
+  tctx.globalAlpha=1;
+  requestAnimationFrame(draw);
+}
+
+function addTrail(x,y){
+  var now=performance.now();
+  if(now-lastTrail<16)return;
+  lastTrail=now;
+
+  for(var i=0;i<3;i++){
+    var a=Math.random()*Math.PI*2;
+    var d=Math.random()*8;
+
+    particles.push({
+      x:x+Math.cos(a)*d,
+      y:y+Math.sin(a)*d,
+      vx:(Math.random()-.5)*.35,
+      vy:(Math.random()-.5)*.35,
+      life:.7+Math.random()*.5,
+      r:.7+Math.random()*1.5
+    });
+  }
+}
+
+function burst(x,y){
+  for(var i=0;i<35;i++){
+    var a=Math.random()*Math.PI*2;
+    var v=.2+Math.random()*1.8;
+
+    particles.push({
+      x:x,
+      y:y,
+      vx:Math.cos(a)*v,
+      vy:Math.sin(a)*v,
+      life:.8+Math.random()*.5,
+      r:.7+Math.random()*1.5
+    });
+  }
+}
+
+function showScene(id){
+  var list=document.querySelectorAll(".scene");
+  for(var i=0;i<list.length;i++)list[i].classList.remove("on");
+  document.getElementById(id).classList.add("on");
+}
+
+function advance(){
+  step++;
+  if(step===1)showScene("s2");
+  if(step===2)showScene("s3");
+  if(step===3)showScene("s4");
+  if(step===4){
+    showScene("s5");
+    document.getElementById("hint").classList.add("on");
+    createInteractiveStars();
+  }
+}
+
+function createInteractiveStars(){
+  if(buttons.length)return;
+
+  var data=[
+    [.17,.25,"ひとつめ","ここまで来てくれてありがとう。✦"],
+    [.76,.34,"ふたつめ","この星を見つけたね。"],
+    [.32,.62,"みっつめ","小さな星をひとつ、プレゼント。"],
+    [.69,.72,"よっつめ","これは少しだけ隠していました。"],
+    [.52,.17,"いつつめ","空を見上げるのも悪くないね。"],
+    [.88,.78,"もうひとつ","まだ終わりじゃないよ。"]
+  ];
+
+  for(var i=0;i<data.length;i++){
+    (function(d){
+      var b=document.createElement("button");
+      b.className="starButton";
+      b.style.left=(d[0]*100)+"%";
+      b.style.top=(d[1]*100)+"%";
+      b.setAttribute("aria-label","star");
+      b.innerHTML="<span></span>";
+
+      b.addEventListener("click",function(e){
+        e.stopPropagation();
+        burst(e.clientX,e.clientY);
+        document.getElementById("pt").textContent=d[2];
+        document.getElementById("px").textContent=d[3];
+        document.getElementById("popup").classList.add("on");
+      });
+
+      document.getElementById("ui").appendChild(b);
+      buttons.push(b);
+    })(data[i]);
+  }
+}
+
+document.getElementById("close").addEventListener("click",function(){
+  document.getElementById("popup").classList.remove("on");
+});
+
+document.addEventListener("pointerdown",function(e){
+  if(e.target.closest("#popup")||e.target.classList.contains("starButton"))return;
+  dragging=true;
+  addTrail(e.clientX,e.clientY);
+});
+
+document.addEventListener("pointermove",function(e){
+  if(dragging)addTrail(e.clientX,e.clientY);
+});
+
+document.addEventListener("pointerup",function(){
+  dragging=false;
+});
+
+document.addEventListener("pointercancel",function(){
+  dragging=false;
+});
+
+window.addEventListener("resize",resize);
+
+resize();
+requestAnimationFrame(draw);
+
+setTimeout(advance,3500);
+setTimeout(advance,7500);
+setTimeout(advance,11000);
+setTimeout(advance,14500);
+})();
+</script>
+</body>
+</html>
